@@ -1,99 +1,98 @@
 import os
-from langchain_community.tools import TavilySearchResults
-from tavily import TavilyClient
-from langgraph.graph import StateGraph, END
-from typing import TypedDict, Annotated, List, Dict, Any
-from langchain_core.runnables.graph import MermaidDrawMethod
 import streamlit as st
-from IPython.display import display, Image
-import re
+from langgraph.graph import StateGraph
+from typing import TypedDict, List, Dict, Any
 from langchain_groq import ChatGroq
 from langchain.prompts.chat import ChatPromptTemplate
 
-os.environ["TAVILY_API_KEY"] = os.getenv('TAVILY_API_KEY')
-os.environ["GROQ_API_KEY"] = os.getenv('GROQ_API_KEY')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 
-AMAZON_SEARCH_PROMPT = "Search for the best deals on Amazon for {product} in the {section} category."
+llm = ChatGroq(api_key=GROQ_API_KEY, model="mixtral-8x7b-32768", temperature=0.5)
 
-BEST_DEAL_PROMPT = "Given the following search results from Amazon, find the best deal for the product. Amazon Results: {amazon_results} | Best Deal:"
+AMAZON_SEARCH_PROMPT = """
+You are a smart shopping assistant. Search for the best deals on Amazon for {product} in the {section} category.
+Provide results in a structured format:
+- Title
+- Price
+- Ratings
+- URL
+"""
 
-AMAZON_PRODUCT_BY_LINKS_PROMPT = "Using the provided Amazon links, retrieve detailed information about the product including price, availability, and ratings: {amazon_links}"
+PRODUCT_RECOMMENDATION_PROMPT = """
+Given the search results from Amazon, analyze the best product based on price, ratings, and availability.
+Provide a recommendation in this format: 
 
-PRODUCT_RECOMMENDATION_PROMPT = """Based on the search results, product details, and reviews, recommend the best product to purchase and specify the retailer. Here are a few examples to guide your response: 
-    Example 1: 
-    Input:
-    - Amazon Results: ["Product X", "Price: $25", "Rating: 4.5"]
-    - eBay Results: ["Product X", "Price: $23", "Rating: 4.3"]
-    
-    Output:
-    Recommendation: Choose Product X from eBay due to the lower price while maintaining similar quality.
-    Example 2:
-    Input:
-    - Amazon Results: ["Product Y", "Price: $45", "Rating: 4.7"]
-    - eBay Results: ["Product Y", "Price: $48", "Rating: 4.7"]
-    Output:
-    Recommendation: Choose Product Y from Amazon as it offers a better deal for the same quality.
-    Now, please provide a detailed recommendation for the queried product using similar reasoning """
+Search Results: {amazon_results}
 
+**Recommendation:**
+[Product Name]
+- Price: $X.XX
+- Rating: X.X stars
+- Buy from: [Retailer Name]
+- Reason: (Short justification)
+"""
+
+# Define Agent State
 class AgentState(TypedDict):
     product: str
     product_type: str
-    search_result: List[Dict[str, Any]]
-    reviews: List[str]
-    processed_reviews: str
+    search_results: List[Dict[str, Any]]
     recommendation: str
 
+# Function to search Amazon
 def search_amazon_node(state: AgentState):
-    # Were using the TavilySearchResults tool to search for products on Amazon and eBay
-    tool = TavilySearchResults(
-        max_results=3,
-        search_depth="advanced",
-        include_answer=True,
-        include_raw_content=True,
-        include_images=True,
-        include_domains=["http://www.amazon.com"],
-        # exclude_domains=[...],
-        # name="...",            # overwrite default tool name
-        # description="...",     # overwrite default tool description
-        # args_schema=...,       # overwrite default args_schema: BaseModel
-    )
-    search_results = tool.invoke({
-        "query": AMAZON_SEARCH_PROMPT.format(product=state["product"], section=state["product_type"])
-    })
-    state["search_result"] = search_results
+    """Uses Groq API (Mixtral-8x7b) to search Amazon for the product."""
+    prompt = ChatPromptTemplate.from_template(AMAZON_SEARCH_PROMPT)
+
+    query = prompt.format(product=state["product"], section=state["product_type"])  
+    response = llm.invoke(query)
+
+    results = []
+    product = {}
+
+    for line in response.content.split("\n"):
+        if "Title:" in line:
+            product = {"title": line.replace("Title:", "").strip()}
+        elif "Price:" in line:
+            product["price"] = line.replace("Price:", "").strip()
+        elif "Ratings:" in line:
+            product["ratings"] = line.replace("Ratings:", "").strip()
+        elif "URL:" in line:
+           
+            search_query = product["title"].replace(" ", "+")
+            product["url"] = f"https://www.amazon.com/s?k={search_query}"  
+
+            results.append(product)  # Save only when all fields are filled
+
+    state["search_results"] = results if results else [{"title": "No products found"}]
     return state
 
-def grab_product_reviews_node(state: AgentState):
-    pass
-
 def provide_recommendation_node(state: AgentState):
-    pass
+    """Uses Groq API to provide a structured product recommendation."""
+    prompt = ChatPromptTemplate.from_template(PRODUCT_RECOMMENDATION_PROMPT)
 
-# Building the state graph
+    query = prompt.format(amazon_results=str(state["search_results"]))  # 
+    response = llm.invoke(query)
+
+    state["recommendation"] = response.content if response.content else "No recommendation available."
+    return state
+
+
 builder = StateGraph(AgentState)
-
-# Add nodes to the graph 
 builder.add_node("start", search_amazon_node)
-builder.add_node("grab_product_review", grab_product_reviews_node)
 builder.add_node("product_recommendation", provide_recommendation_node)
 
 builder.set_entry_point("start")
+builder.add_edge("start", "product_recommendation")
 
-# Add edges to the graph
-builder.add_edge("start", "grab_product_review")
-builder.add_edge("grab_product_review", "product_recommendation")
-
-# Compile 
+# Compile the graph
 graph = builder.compile()
 
-
-# Main
+# Main Streamlit App
 def main():
-    amazon_logo_url = "https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg"
-    st.image(amazon_logo_url, width=200)
-    st.title("Amazon Product Recommendation Agent 🔍")
-    st.write("This agent searches for products on Amazon based on the detailed information provided below. ")
-    # st.markdown("### Steps to Use the Model:")s
+    st.image("https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg", width=200)
+    st.title("Amazon Product Recommendation AI 🔍")
+    st.write("This AI searches for the best deals on Amazon and recommends the best product.")
     st.markdown("1. **Enter Product Name:** Type the product you wish to search for in the text input field.")
     st.markdown("2. **Select Product Type:** Choose the relevant product category from the dropdown list.")
     st.markdown("3. **Perform Search:** Click the 'Search' button to initiate the product search.")
@@ -101,43 +100,39 @@ def main():
     st.write("Developed by [*Alvajoy Asante*](https://www.linkedin.com/in/alvajoy-asante)")
 
 
+
     col1, col2 = st.columns(2)
     with col1:
         product_name = st.text_input("Enter the product name:")
     with col2:
         product_types = [
-            "Computers",
-            "Smartphones",
-            "Tablets",
-            "TVs",
-            "Cameras",
-            "Audio Equipment",
-            "Home Appliances",
-            "Books",
-            "Clothing",
-            "Sports Equipment",
-            "Toys & Games",
-            "Health & Beauty",
-            "Automotive",
-            "Garden & Outdoor",
-            "Office Supplies"
+            "Computers", "Smartphones", "Tablets", "TVs", "Cameras", "Audio Equipment",
+            "Home Appliances", "Books", "Clothing", "Sports Equipment", "Toys & Games",
+            "Health & Beauty", "Automotive", "Garden & Outdoor", "Office Supplies"
         ]
         selected_product_type = st.selectbox("Select Product Type", sorted(product_types))
 
     if st.button("Search"):
         if product_name:
-            with st.spinner(f"Searching for the best deals on Amazon for {product_name}"):
+            with st.spinner(f"Searching for {product_name}..."):
+                results = graph.invoke({"product": product_name, "product_type": selected_product_type})
 
-                results = graph.stream({"product": product_name, "product_type": selected_product_type})
-                print(list(results))
-                
-                if results:
-                    print("Results found")
-                    st.subheader("Search Results:")
+                if results and results.get("search_results"):
+                    st.subheader("🔍 Search Results")
+                    for idx, item in enumerate(results["search_results"]):
+                        st.write(f"**{idx+1}. {item.get('title', 'No Title')}**")
+                        st.write(f"- 💲 Price: {item.get('price', 'N/A')}")
+                        st.write(f"- ⭐ Rating: {item.get('ratings', 'N/A')}")
+                        st.write(f"- 🔗 [View Product]({item.get('url', '#')})")
+                        st.write("---")
+
+                    st.subheader("✅ Best Recommendation")
+                    st.write(results["recommendation"])
+
                 else:
-                    st.write("No results found.")
+                    st.warning("No results found. Try a different search.")
         else:
-            st.write("Please enter a product name.")
+            st.warning("Please enter a product name.")
 
 if __name__ == "__main__":
     main()
