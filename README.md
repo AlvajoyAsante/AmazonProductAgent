@@ -32,7 +32,6 @@ Store these keys in a `.env` file or config.py:
 #### Using a .env file
 ```
 GROQ_API_KEY=your_groq_api_key
-TAVILY_API_KEY=your_tavily_api_key
 ```
 
 ---
