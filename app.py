@@ -4,10 +4,18 @@ from langgraph.graph import StateGraph
 from typing import TypedDict, List, Dict, Any
 from langchain_groq import ChatGroq
 from langchain.prompts.chat import ChatPromptTemplate
+from dotenv import load_dotenv
 
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 
-llm = ChatGroq(api_key=GROQ_API_KEY, model="mixtral-8x7b-32768", temperature=0.5)
+# API Keys
+
+load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY is not set in the environment variables.")
+
+
+# Prompts Templates
 
 AMAZON_SEARCH_PROMPT = """
 You are a smart shopping assistant. Search for the best deals on Amazon for {product} in the {section} category.
@@ -31,6 +39,11 @@ Search Results: {amazon_results}
 - Buy from: [Retailer Name]
 - Reason: (Short justification)
 """
+
+
+# Global LLM Object (LLM model could be changed) 
+llm = ChatGroq(api_key=GROQ_API_KEY, model="mixtral-8x7b-32768", temperature=0.5)
+
 
 # Define Agent State
 class AgentState(TypedDict):
