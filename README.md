@@ -1,3 +1,4 @@
+![Amazon Logo](https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg)
 # Amazon Product Agent 🛒
 
 An AI-powered shopping assistant that helps users find and compare products on Amazon using Groq AI models, and a Streamlit-based interface.
