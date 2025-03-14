@@ -1,9 +1,9 @@
 import os
 import streamlit as st
-from langchain_community.graph import StateGraph
+from langgraph.graph import StateGraph
 from typing import TypedDict, List, Dict, Any
-from langchain_community.llms.groq import ChatGroq
-from langchain_community.prompts.chat import ChatPromptTemplate
+from langchain_groq import ChatGroq
+from langchain.prompts.chat import ChatPromptTemplate
 from dotenv import load_dotenv
 
 
